@@ -133,15 +133,39 @@ export async function indexPdf(filePath, title = null) {
 // This function is called WITHOUT await — it runs in the background
 // while the HTTP response has already been sent to the client
 export async function indexPdfAsync(documentId, filePath, userId) {
+  let client;
 
   try {
+
+    client = await pool.connect();
+
+    // Establish RLS identity for this background job
+    await client.query(
+      `SELECT set_config('app.current_user_id', $1, false)`,
+      [String(userId)]
+    );
+
+    console.log(
+      `[indexer] Started document=${documentId} user=${userId}`
+    );
+
+    //PDF extraction
     const extracted = await safeExtractPdf(filePath);
     if (!extracted.success) {
       throw new Error(`${extracted.error}. ${extracted.hint || ""}`);
     }
 
+    console.log(
+      `[indexer] Extracted ${extracted.numPages} pages`
+    );
+
+    // Chunking
     const allChunks = chunkPdfPages(extracted.pages, 150, 30);
     const chunks = allChunks.filter(c => isUsableChunk(c.text));
+
+    console.log(
+      `[indexer] ${chunks.length} usable chunks`
+    );
 
     if (chunks.length === 0) {
       throw new Error("No usable chunks produced after quality filtering");
@@ -149,7 +173,7 @@ export async function indexPdfAsync(documentId, filePath, userId) {
 
     // Set total_chunks now so the frontend can compute percentage
     // before any embedding has started
-    await pool.query(
+    await client.query(
       `UPDATE documents
        SET total_chunks = $1, num_pages = $2, word_count = $3
        WHERE id = $4 AND user_id = $5`,
@@ -177,12 +201,13 @@ export async function indexPdfAsync(documentId, filePath, userId) {
         const embedding = embeddings[j];
 
         if (embedding.length !== EMBEDDING_DIMENSIONS) {
-          throw new Error(`Dimension mismatch on chunk ${i + j}`);
+          throw new Error(`Dimension mismatch on chunk ${i + j}`+`expected ${EMBEDDING_DIMENSIONS}, ` +
+            `got ${embedding.length}`);
         }
 
         const vectorString = `[${embedding.join(",")}]`;
 
-        await pool.query(
+        await client.query(
           `INSERT INTO chunks
              (document_id, user_id,content, chunk_index, word_count,
               start_word, end_word, start_page, end_page, embedding)
@@ -197,7 +222,7 @@ export async function indexPdfAsync(documentId, filePath, userId) {
 
       // Update progress after each batch completes
       // This is what the frontend polls to show the progress bar
-      await pool.query(
+      await client.query(
         `UPDATE documents SET chunks_processed = $1 WHERE id = $2 AND user_id=$3`,
         [processedCount, documentId, userId]
       );
@@ -209,7 +234,7 @@ export async function indexPdfAsync(documentId, filePath, userId) {
     }
 
     // Mark as ready — document is now searchable
-    await pool.query(
+    await client.query(
       `UPDATE documents
        SET status = 'ready', chunk_count = $1, chunks_processed = $1
        WHERE id = $2
@@ -217,10 +242,9 @@ export async function indexPdfAsync(documentId, filePath, userId) {
       [chunks.length, documentId,userId]
     );
 
-    // Clean up the temp file after successful indexing
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    console.log(
+      `✅ Async indexing complete: document=${documentId}`
+    );
 
     console.log(`✅ Async indexing complete: document ${documentId}, ${chunks.length} chunks`);
 
@@ -228,16 +252,54 @@ export async function indexPdfAsync(documentId, filePath, userId) {
     console.error(`❌ Async indexing failed for document ${documentId}:`, err.message);
 
     // Update status to failed with the error message
-    await pool.query(
-      `UPDATE documents
-       SET status = 'failed', error_message = $1
-       WHERE id = $2 AND user_id = $3`,
-      [err.message, documentId, userId]
-    );
-
-    // Clean up temp file even on failure
-    if (fs.existsSync(filePath)) {
-      try { fs.unlinkSync(filePath); } catch {}
+    // Try to mark the document as failed.
+    if (client) {
+      try {
+        await client.query(
+          `UPDATE documents
+           SET status = 'failed',
+               error_message = $1
+           WHERE id = $2
+             AND user_id = $3`,
+          [
+            err.message,
+            documentId,
+            userId
+          ]
+        );
+      } catch (updateErr) {
+        console.error(
+          `❌ Could not mark document as failed:`,
+          updateErr
+        );
+      }
     }
-  }
+
+  }finally {
+      if (client) {
+        try {
+          await client.query(
+            `RESET app.current_user_id`
+          );
+        } catch (resetErr) {
+          console.error(
+            "Failed to reset RLS context:",
+            resetErr.message
+          );
+        }
+
+        client.release();
+      }
+
+      if (fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (cleanupErr) {
+          console.error(
+            "Failed to delete temporary PDF:",
+            cleanupErr.message
+          );
+        }
+      }
+    }
 }
