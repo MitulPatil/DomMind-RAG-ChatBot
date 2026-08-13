@@ -1,151 +1,150 @@
 import jwt from "jsonwebtoken";
 import config from "../config.js";
+import { pool } from "../db/db.js";
 
-export function verifyToken(req,res,next){
-    // Every protected route passes through this function before the route handler runs.
+export async function verifyToken(req, res, next) {
+    // Every protected route passes through this middleware.
 
-    // Step 1: Read the Authorization header.
-    // The JWT convention is: Authorization: Bearer <token>
-    // "Bearer" is a token type identifier from the OAuth 2.0 spec.
-    // It just means "the bearer of this token is authenticated."
-    const authHeader = req.headers['authorization'];
-    // Note: Node.js lowercases all header names. 'Authorization' becomes 'authorization'.
+    const authHeader = req.headers["authorization"];
 
-    // If no Authorization header at all — request has no credentials.
+    // 1. Check Authorization header
     if (!authHeader) {
         return res.status(401).json({
-            status:  'error',
-            message: 'Access denied. No token provided.',
+            status: "error",
+            message: "Access denied. No token provided."
         });
     }
 
-    // Step 2: Extract the token from "Bearer <token>"
-    // authHeader = "Bearer eyJhbGciOiJIUzI1NiIs..."
-    // .split(' ') = ["Bearer", "eyJhbGciOiJIUzI1NiIs..."]
-    // [1] = the token string
-    const parts = authHeader.split(' ');
+    // 2. Validate Bearer token format
+    const parts = authHeader.trim().split(/\s+/);
 
-    // Validate the format: must be exactly "Bearer <token>", nothing else.
-    // Malformed headers (just the token, or "Basic xyz", or extra spaces) are rejected.
-    
-    if(parts.length !== 2 || parts[0] !== "Bearer"){
-        const err = new Error("Token format invalid. Use : Authorization: Bearer <Token>");
+    if (parts.length !== 2 || parts[0] !== "Bearer") {
+        const err = new Error(
+            "Token format invalid. Use: Authorization: Bearer <Token>"
+        );
         err.status = 401;
         return next(err);
     }
 
     const token = parts[1];
 
+    let decoded;
+
+    // 3. Verify JWT
     try {
-        // Step 3: Verify the token.
-        // jwt.verify() does three things simultaneously:
-        //   a) Re-computes the signature using JWT_SECRET and compares to token's signature
-        //   b) Checks that 'exp' claim has not passed
-        //   c) Returns the decoded payload if both checks pass
-        //
-        // If signature is invalid: throws JsonWebTokenError
-        // If token is expired:     throws TokenExpiredError
-        // If token is malformed:   throws JsonWebTokenError
-        const decode = jwt.verify(token, config.jwtSecret,{
-            // Always specify the expected algorithm.
-            // Prevents the 'alg: none' attack where an attacker removes the signature
-            // and sets the algorithm to 'none', claiming no verification is needed.
-            // jsonwebtoken v9+ rejects 'none' by default, but explicit is safer.
-            algorithms: ['HS256'],
-            }
+        decoded = jwt.verify(token, config.jwtSecret, {
+            algorithms: ["HS256"]
+        });
+    } catch (err) {
+        if (err.name === "TokenExpiredError") {
+            const error = new Error(
+                "Token expired. Please log in again."
+            );
+            error.status = 401;
+            error.code = "TOKEN_EXPIRED";
+            return next(error);
+        }
+
+        if (err.name === "JsonWebTokenError") {
+            const error = new Error(
+                "Invalid authentication token."
+            );
+            error.status = 401;
+            error.code = "TOKEN_INVALID";
+            return next(error);
+        }
+
+        const error = new Error("Authentication failed.");
+        error.status = 401;
+        error.code = "AUTH_FAILED";
+        return next(error);
+    }
+
+    // 4. Validate user ID from JWT
+    if (!decoded.id || !Number.isInteger(Number(decoded.id))) {
+        const err = new Error("Invalid user identity in token.");
+        err.status = 401;
+        err.code = "INVALID_USER_ID";
+        return next(err);
+    }
+
+    const userId = Number(decoded.id);
+
+    // 5. Attach authenticated user to request
+    req.user = {
+        id: userId,
+        email: decoded.email
+    };
+
+    let client;
+
+    try {
+        // 6. Get a dedicated PostgreSQL connection
+        client = await pool.connect();
+
+        // 7. Set RLS context on THIS connection
+        await client.query(
+            `SELECT set_config('app.current_user_id', $1, false)`,
+            [String(userId)]
         );
 
-        // decoded = { id: 3, email: 'mitul@devlog.com', iat: ..., exp: ... }
+        // 8. Make this connection available to protected controllers
+        req.db = client;
 
-        // Step 4: Attach the decoded payload to the request object.
-        // req.user is now available in every route handler downstream.
-        // The route handler never needs to re-query the database for user identity —
-        // the verified token payload contains what it needs.
+        let cleanedUp = false;
 
-        req.user = {
-            id : decode.id,
-            email : decode.email,
-            // Deliberately pick only what you need — do not spread the entire decoded payload.
-            // decoded also contains iat and exp — route handlers do not need those.
-        }
+        // 9. Release the connection when the HTTP request finishes
+        const cleanup = async () => {
+            if (cleanedUp) return;
+            cleanedUp = true;
 
-        const client = await pool.connect();
+            try {
+                // Remove the user-specific RLS context
+                // before returning the connection to the pool.
+                await client.query(
+                    `RESET app.current_user_id`
+                );
+            } catch (err) {
+                console.error(
+                    "Failed to reset RLS context:",
+                    err.message
+                );
+            } finally {
+                client.release();
 
-        try {
-            // Set the RLS context on THIS specific connection.
-            await client.query(
-                `SELECT set_config('app.current_user_id', $1, false)`,
-                [decode.id.toString()]
-            );
+                // Don't leave the client accessible after release.
+                req.db = null;
+            }
+        };
 
-            // Make this client available to every protected route.
-            req.db = client;
+        res.once("finish", cleanup);
+        res.once("close", cleanup);
 
-            let cleanedUp = false;
+        // 10. Continue to the protected route
+        return next();
 
-            const cleanup = async () => {
-                if (cleanedUp) return;
-                cleanedUp = true;
-
-                try {
-                    // Very important:
-                    // Remove the user ID before returning the connection
-                    // to the shared connection pool.
-                    await client.query(
-                        `RESET app.current_user_id`
-                    );
-                } catch (err) {
-                    console.error(
-                        "Failed to reset RLS context:",
-                        err.message
-                    );
-                } finally {
-                    client.release();
-                }
-            };
-
-            res.once("finish", cleanup);
-            res.once("close", cleanup);
-
-            next();
-
-        } catch (err) {
-            client.release();
-
-            console.error(
-                "Failed to establish RLS context:",
-                err.message
-            );
-
-            return res.status(500).json({
-                status: "error",
-                message: "Internal server error"
-            });
-        }
     } catch (err) {
-        // jwt.verify() throws on any failure.
-        // Distinguish between "expired" and "invalid" for better client-side handling.
-        if (err.name === 'TokenExpiredError') {
-            // The token was valid but the exp timestamp has passed.
-            // The client should redirect to the login page and prompt re-authentication.
-            const err = new Error("Token expired, Please log in again.");
-            err.status = 401;
-            err.code = 'TOKEN_EXPIRED'; // client can check this code to know what to do
-            return next(err);
+
+        // If connection was acquired but RLS setup failed,
+        // return it to the pool.
+        if (client) {
+            try {
+                await client.query(
+                    `RESET app.current_user_id`
+                );
+            } catch {}
+
+            client.release();
         }
 
-        // JsonWebTokenError: signature invalid, malformed token, wrong algorithm.
-        // This covers tampering, using the wrong secret, and corrupted tokens.
-        if (err.name === 'JsonWebTokenError') {
-            const err = new Error("Invalid authentication Token.");
-            err.status = 401;
-            err.code = 'TOKEN_INVALID'; // client can check this code to know what to do
-            return next(err);
-        }
+        console.error(
+            "Failed to establish RLS context:",
+            err.message
+        );
 
-        err = new Error("Authentication failed.");
-        err.status = 401;
-        err.code = 'AUTH_FAILED'; // client can check this code to know what to do
-        return next(err);
+        return res.status(500).json({
+            status: "error",
+            message: "Internal server error"
+        });
     }
 }

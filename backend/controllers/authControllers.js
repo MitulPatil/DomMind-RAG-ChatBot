@@ -94,7 +94,7 @@ export const getMe = async (req, res, next) => {
 
     console.log("RLS CONTEXT:", result.rows[0]);
 
-    const result = await pool.query(
+    result = await pool.query(
       'SELECT id, email, created_at FROM users WHERE id = $1',
             [req.user.id]
     );
