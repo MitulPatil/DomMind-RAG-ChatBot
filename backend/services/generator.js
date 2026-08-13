@@ -204,7 +204,8 @@ export async function generateAnswerStream(res, question, retrievedChunks, docum
     userId,
     documentId,
     operation: "generation_stream",
-    model: "gemini-3.1-flash-lite-preview"
+    model: "gemini-3.1-flash-lite-preview",
+    db
   }); // intentionally not awaited — logging must not delay the citations even
 
 
