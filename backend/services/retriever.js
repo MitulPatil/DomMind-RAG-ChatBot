@@ -19,10 +19,10 @@ async function semanticSearch(question, documentId, userId,topK=20) {
       start_page,
       end_page,
       word_count,
-      1 - (embedding <=> $1) AS similarity
+      1 - (embedding <=> $1::vector) AS similarity
     FROM chunks
     WHERE document_id=$2 AND user_id=$3
-    ORDER BY embedding <=> $1 ASC
+    ORDER BY embedding <=> $1::vector ASC
     LIMIT $4`,
     [vectorString, documentId, userId, topK]
   )
