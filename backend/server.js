@@ -87,6 +87,15 @@ const startServer = async () => {
       "SELECT NOW() AS startup_time"
     );
 
+    const roleCheck = await pool.query(`
+      SELECT
+        current_user,
+        session_user,
+        current_setting('search_path') AS search_path
+    `);
+
+    console.log("DATABASE ROLE:", roleCheck.rows[0]);
+
     console.log(
       `Database connected at: ${dbCheck.rows[0].startup_time}`
     );
