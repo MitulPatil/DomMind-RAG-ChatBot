@@ -133,7 +133,6 @@ export async function indexPdf(filePath, title = null) {
 // This function is called WITHOUT await — it runs in the background
 // while the HTTP response has already been sent to the client
 export async function indexPdfAsync(documentId, filePath, userId) {
-  const client = await pool.connect();
 
   try {
     const extracted = await safeExtractPdf(filePath);
@@ -150,7 +149,7 @@ export async function indexPdfAsync(documentId, filePath, userId) {
 
     // Set total_chunks now so the frontend can compute percentage
     // before any embedding has started
-    await client.query(
+    await pool.query(
       `UPDATE documents
        SET total_chunks = $1, num_pages = $2, word_count = $3
        WHERE id = $4 AND user_id = $5`,
@@ -183,7 +182,7 @@ export async function indexPdfAsync(documentId, filePath, userId) {
 
         const vectorString = `[${embedding.join(",")}]`;
 
-        await client.query(
+        await pool.query(
           `INSERT INTO chunks
              (document_id, user_id,content, chunk_index, word_count,
               start_word, end_word, start_page, end_page, embedding)
@@ -198,7 +197,7 @@ export async function indexPdfAsync(documentId, filePath, userId) {
 
       // Update progress after each batch completes
       // This is what the frontend polls to show the progress bar
-      await client.query(
+      await pool.query(
         `UPDATE documents SET chunks_processed = $1 WHERE id = $2 AND user_id=$3`,
         [processedCount, documentId, userId]
       );
@@ -210,7 +209,7 @@ export async function indexPdfAsync(documentId, filePath, userId) {
     }
 
     // Mark as ready — document is now searchable
-    await client.query(
+    await pool.query(
       `UPDATE documents
        SET status = 'ready', chunk_count = $1, chunks_processed = $1
        WHERE id = $2
@@ -229,7 +228,7 @@ export async function indexPdfAsync(documentId, filePath, userId) {
     console.error(`❌ Async indexing failed for document ${documentId}:`, err.message);
 
     // Update status to failed with the error message
-    await client.query(
+    await pool.query(
       `UPDATE documents
        SET status = 'failed', error_message = $1
        WHERE id = $2 AND user_id = $3`,
@@ -240,11 +239,5 @@ export async function indexPdfAsync(documentId, filePath, userId) {
     if (fs.existsSync(filePath)) {
       try { fs.unlinkSync(filePath); } catch {}
     }
-  }finally {
-      try {
-          await client.query(`RESET app.current_user_id`);
-      } catch {}
-
-      client.release();
-    }
+  }
 }
