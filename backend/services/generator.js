@@ -160,7 +160,7 @@ export async function generateAnswer(question, retrievedChunks) {
 // retrievedChunks: array of chunks from hybridSearch
 // documentId: needed to save to conversations table
 // Returns: the complete answer string (accumulated from all tokens)
-export async function generateAnswerStream(res, question, retrievedChunks, documentId, userId, db,retrievalMeta = {}) {
+export async function generateAnswerStream(res, question, retrievedChunks, documentId, userId,retrievalMeta = {}, db) {
   // Build context — same as non-streaming version
   const prompt = buildSecurePrompt(question, retrievedChunks);
 
