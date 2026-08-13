@@ -23,7 +23,7 @@ export const errorHandler = (err, req, res, next) => {
   const statusCode = err.status || 500;
   res.status(statusCode).json({
     status:  'error',
-    message: statusCode === 500 && !config.isDev ? 'Internal server error' : err.message,
-    ...(config.isDev && { stack: err.stack }),
+    message: statusCode === 500 && !config.nodeEnv ? 'Internal server error' : err.message,
+    ...(config.nodeEnv && { stack: err.stack }),
   });
 };

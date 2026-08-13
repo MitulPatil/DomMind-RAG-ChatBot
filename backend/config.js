@@ -20,6 +20,7 @@ export const config = {
     appName : process.env.APP_NAME || "DOCMIND",
     dbPass : process.env.DB_PASSWORD,
     dbUrl : process.env.DATABASE_URL,
+    AdminDbUrl : process.env.ADMIN_DATABASE_URL,
     jwtSecret : process.env.JWT_SECRET,
     jwtExpiresIn : process.env.JWT_EXPIRES_IN || '7d',
     bcryptRounds : parseInt(process.env.BCRYPT_ROUNDS, 10) || 10,

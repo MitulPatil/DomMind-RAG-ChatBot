@@ -27,7 +27,7 @@ export const pool = new Pool(
 export const adminPool = new Pool(
   process.env.DATABASE_URL
     ? {
-        connectionString: config.dbUrl,
+        connectionString: config.AdminDbUrl,
         ssl: { rejectUnauthorized: false }
       }
     : {
