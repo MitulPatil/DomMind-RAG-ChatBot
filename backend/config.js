@@ -3,7 +3,7 @@ import { fileURLToPath } from "url";
 
 dotenv.config({ path: fileURLToPath(new URL(".env", import.meta.url)) });
 
-const keys = ["GEMINI_API_KEY","DB_PASSWORD"];
+const keys = ["GEMINI_API_KEY"];
 
 keys.forEach(key => {
     if(!process.env[key]){
