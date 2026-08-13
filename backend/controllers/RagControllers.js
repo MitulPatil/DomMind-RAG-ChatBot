@@ -17,7 +17,7 @@ export const uploadPdf = async (req,res,next) => {
   
     try {
       // Check if already indexed
-      const existing = await pool.query(
+      const existing = await req.db.query(
         "SELECT id, status FROM documents WHERE filename = $1 AND user_id = $2",
         [originalName, userId]
       );
@@ -36,7 +36,7 @@ export const uploadPdf = async (req,res,next) => {
   
       // Insert document record with status 'processing'
       // This returns immediately — indexing happens in background
-      const docResult = await pool.query(
+      const docResult = await req.db.query(
         `INSERT INTO documents (filename, title, status, user_id, chunks_processed, total_chunks)
          VALUES ($1, $2, 'processing', $3, 0, 0)
          RETURNING id`,
@@ -80,7 +80,7 @@ export const askQuestion = async (req,res,next) => {
 
     try {
         // Keep the document scoped to the authenticated user.
-        const docresult = await pool.query(
+        const docresult = await req.db.query(
             `SELECT id, filename FROM documents WHERE id = $1 AND user_id = $2`,
             [documentId, userId]
         )
@@ -152,7 +152,7 @@ export const askStreamQuestion = async (req,res,next) => {
     }
 
     try {
-        const docResult = await pool.query(
+        const docResult = await req.db.query(
         "SELECT id, filename, status FROM documents WHERE id = $1 AND user_id = $2",
         [documentId, userId]
        ) 
@@ -169,7 +169,7 @@ export const askStreamQuestion = async (req,res,next) => {
         return;
        }
 
-         const retrieval = await hybridSearch(question.trim(), documentId, userId, 3);
+         const retrieval = await hybridSearch(question.trim(), documentId, userId, req.db, 3);
 
        if(retrieval.gated){
         sendEvent({
@@ -182,7 +182,7 @@ export const askStreamQuestion = async (req,res,next) => {
         return
        }
 
-         await generateAnswerStream(res, question.trim(), retrieval.chunks, documentId, userId, retrieval);
+         await generateAnswerStream(res, question.trim(), retrieval.chunks, documentId, userId, retrieval, req.db);
 
        res.end();
     } catch (error) {
@@ -202,7 +202,7 @@ export const getAllConversation = async (req,res,next) => {
     const { documentId } = req.params;
 
     try {
-        const docCheck = await pool.query(
+        const docCheck = await req.db.query(
             "SELECT id FROM documents WHERE id = $1 AND user_id = $2",
             [documentId, userId]
         );
@@ -213,7 +213,7 @@ export const getAllConversation = async (req,res,next) => {
             return next(err);
         }
 
-        const result = await pool.query(
+        const result = await req.db.query(
             `SELECT id, question, answer, citations, created_at
             FROM conversations
             WHERE document_id=$1
@@ -247,7 +247,7 @@ export const getConversationById = async (req,res,next) => {
     const userId = req.user.id;
 
     try {
-        const result = await pool.query(
+        const result = await req.db.query(
             `SELECT id, question, answer, citations, created_at
             FROM conversations
             WHERE id = $1 AND document_id = $2 AND user_id = $3`,
@@ -284,7 +284,7 @@ export const deleteConversationById = async (req,res,next) => {
     const userId = req.user.id;
 
     try {
-        const result = await pool.query(
+        const result = await req.db.query(
         `DELETE FROM conversations
         WHERE id = $1 AND document_id = $2 AND user_id = $3
         RETURNING id`,
@@ -310,7 +310,7 @@ export const getAllDocuments = async (req,res,next) => {
     const userId = req.user.id;
 
     try {
-        const result = await pool.query(
+        const result = await req.db.query(
         `SELECT id, filename, title, status, num_pages, word_count,
                 chunk_count, chunks_processed, total_chunks,
                 error_message, created_at
@@ -332,7 +332,7 @@ export const getDocumentById = async (req,res,next) => {
     const userId = req.user.id;
 
     try {
-        const result = await pool.query(
+        const result = await req.db.query(
           `SELECT id, filename, title, status, num_pages, word_count,
                   chunk_count, chunks_processed, total_chunks,
                   error_message, created_at
@@ -385,7 +385,7 @@ export const getChunkById = async (req,res,next) => {
     const userId = req.user.id;
 
     try {
-        const result = await pool.query(
+        const result = await req.db.query(
           `SELECT
              id,
              document_id,
@@ -439,7 +439,7 @@ export const deleteDocumentById = async (req,res,next) => {
     }
 
     try {
-        const result  = await pool.query(
+        const result  = await req.db.query(
             `DELETE FROM documents WHERE id=$1 AND user_id = $2 RETURNING id,filename`,[docId, userId]
         );
 

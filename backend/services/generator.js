@@ -160,7 +160,7 @@ export async function generateAnswer(question, retrievedChunks) {
 // retrievedChunks: array of chunks from hybridSearch
 // documentId: needed to save to conversations table
 // Returns: the complete answer string (accumulated from all tokens)
-export async function generateAnswerStream(res, question, retrievedChunks, documentId, userId, retrievalMeta = {}) {
+export async function generateAnswerStream(res, question, retrievedChunks, documentId, userId, db,retrievalMeta = {}) {
   // Build context — same as non-streaming version
   const prompt = buildSecurePrompt(question, retrievedChunks);
 
@@ -234,7 +234,7 @@ export async function generateAnswerStream(res, question, retrievedChunks, docum
   // safely refresh history as soon as it receives type: "done".
   if (!refused && !clientDisconnected && fullAnswer.trim().length > 0) {
     try {
-      await pool.query(
+      await db.query(
         `INSERT INTO conversations (document_id, user_id, question, answer, citations)
          VALUES ($1, $2, $3, $4, $5)`,
         [documentId, userId, question, fullAnswer, JSON.stringify(citations)]
@@ -247,7 +247,7 @@ export async function generateAnswerStream(res, question, retrievedChunks, docum
 
   // After generateAnswerStream completes:
   const precision = evaluateContextPrecision(retrievedChunks, fullAnswer);
-  await pool.query(
+  await db.query(
     `INSERT INTO evaluation_logs
       (document_id, question, top_similarity, context_precision,
         overall_quality, chunk_count, keyword_count)

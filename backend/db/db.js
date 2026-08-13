@@ -38,17 +38,3 @@ export const adminPool = new Pool(
         port: 5432
       }
 );
-
-
-// setRlsContext — sets the session variable RLS policies read
-// Call this at the start of every authenticated request
-// before running any queries with the main pool
-export async function setRlsContext(userId) {
-  await pool.query(
-    `SELECT set_config('app.current_user_id', $1::text, true)`,
-    [userId.toString()]
-    // true = transaction-scoped (resets after transaction ends)
-    // This prevents the context from leaking between requests
-    // in a connection pool where connections are reused
-  );
-}

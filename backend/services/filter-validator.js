@@ -1,6 +1,6 @@
-import {pool} from "../db/db.js";
+// import {pool} from "../db/db.js";
 
-export async function validateDocumentAccess(documentId, userId) {
+export async function validateDocumentAccess(documentId, userId, db) {
     const id = parseInt(documentId);
     const ownerId = parseInt(userId);
 
@@ -12,7 +12,7 @@ export async function validateDocumentAccess(documentId, userId) {
         throw new Error("Authenticated user context is required to access documents");
     }
 
-    const result = await pool.query(
+    const result = await db.query(
         `SELECT id, filename , status, chunk_count
         FROM documents
         WHERE id = $1 AND user_id = $2`,[id,ownerId]

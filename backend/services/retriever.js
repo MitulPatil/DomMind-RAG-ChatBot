@@ -6,12 +6,12 @@ const K = 60;
 const ABSOLUTE_MINIMUM = 0.50;
 const RELATIVE_THRESHOLD = 0.85;
 
-async function semanticSearch(question, documentId, userId,topK=20) {
+async function semanticSearch(question, documentId, userId, db,topK=20) {
   const resultVector = await generateEmbedding(question);
 
   const vectorString = `[${resultVector}]`;
 
-  const result = await pool.query(
+  const result = await db.query(
     `SELECT 
       id,
       chunk_index,
@@ -39,8 +39,8 @@ async function semanticSearch(question, documentId, userId,topK=20) {
   }))
 }
 
-async function keywordSearch(question, documentId, userId,topK=20) {
-  const result = await pool.query(
+async function keywordSearch(question, documentId, userId,db,topK=20) {
+  const result = await db.query(
     `SELECT
       id,
       chunk_index,
@@ -137,12 +137,12 @@ function mergeAdjecentChunks(chunks){
   return merged;
 }
 
-export async function hybridSearch(question, documentId, userId,topK=3, useReranker = false) {
-  await validateDocumentAccess(documentId, userId);
+export async function hybridSearch(question, documentId, userId, db, topK=3, useReranker = false) {
+  await validateDocumentAccess(documentId, userId, db);
 
   const [similarityResults, keywordResults] = await Promise.all([
-    semanticSearch(question, documentId, userId,20),
-    keywordSearch(question, documentId, userId,20)
+    semanticSearch(question, documentId, userId, db,20),
+    keywordSearch(question, documentId, userId, db,20)
   ])
 
   if (keywordResults.length === 0) {

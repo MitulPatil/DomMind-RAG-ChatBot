@@ -2,7 +2,7 @@
 // Central module for tracking all Gemini API costs
 // Every Gemini call in the application should call logApiUsage after completion
 
-import { pool } from "../db/db.js";
+import { pool, adminPool } from "../db/db.js";
 
 // ── PRICING TABLE ─────────────────────────────────────────────────────────
 // Prices in USD per 1 million tokens
@@ -32,7 +32,8 @@ export async function logApiUsage({
   operation,       // string — 'embedding' | 'generation' | 'generation_stream' | 'judge'
   model,           // string — model name from the SDK call
   promptTokens,    // integer — from usageMetadata.promptTokenCount
-  completionTokens // integer — from usageMetadata.candidatesTokenCount
+  completionTokens, // integer — from usageMetadata.candidatesTokenCount
+  db
 }) {
   // Validate token counts — negative or NaN values indicate a bug upstream
   const safePromptTokens = Math.max(0, parseInt(promptTokens) || 0);
@@ -40,7 +41,7 @@ export async function logApiUsage({
   const totalTokens = safePromptTokens + safeCompletionTokens;
 
   try {
-    await pool.query(
+    await db.query(
       `INSERT INTO api_usage_logs
          (user_id, document_id, operation, model,
           prompt_tokens, completion_tokens, total_tokens)
@@ -67,7 +68,7 @@ export async function logApiUsage({
 // logStreamUsage — called after a streaming response completes
 // streamResult is the return value of model.generateContentStream()
 // Must be called AFTER the for-await loop finishes — not during
-export async function logStreamUsage(streamResult, { userId, documentId, operation, model }) {
+export async function logStreamUsage(streamResult, { userId, documentId, operation, model, db }) {
   try {
     // streamResult.response is a Promise that resolves when the stream ends
     // It's safe to await here because we call this function after the loop
@@ -81,7 +82,8 @@ export async function logStreamUsage(streamResult, { userId, documentId, operati
         operation,
         model,
         promptTokens: usage.promptTokenCount || 0,
-        completionTokens: usage.candidatesTokenCount || 0
+        completionTokens: usage.candidatesTokenCount || 0,
+        db
       });
     }
   } catch (err) {
@@ -112,9 +114,9 @@ export function calculateCost(model, promptTokens, completionTokens) {
 
 // getUserUsageSummary — aggregated stats for a specific user
 // Returns usage grouped by operation type, with cost estimates
-export async function getUserUsageSummary(userId, days = 30) {
+export async function getUserUsageSummary(userId, db,days = 30) {
   // Group by operation and model to show a breakdown
-  const byOperation = await pool.query(
+  const byOperation = await db.query(
     `SELECT
        operation,
        model,
@@ -133,7 +135,7 @@ export async function getUserUsageSummary(userId, days = 30) {
   );
 
   // Daily breakdown — useful for showing a usage trend graph
-  const byDay = await pool.query(
+  const byDay = await db.query(
     `SELECT
        DATE(created_at)              AS day,
        SUM(total_tokens)::integer    AS tokens,
@@ -181,7 +183,7 @@ export async function getUserUsageSummary(userId, days = 30) {
 // getSystemUsageSummary — admin view of all users' usage
 // Call this only from admin endpoints, never expose to regular users
 export async function getSystemUsageSummary(days = 30) {
-  const result = await pool.query(
+  const result = await adminPool.query(
     `SELECT
        u.email,
        al.user_id,

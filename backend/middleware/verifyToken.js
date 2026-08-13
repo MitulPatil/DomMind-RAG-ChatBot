@@ -1,6 +1,5 @@
 import jwt from "jsonwebtoken";
 import config from "../config.js";
-import { setRlsContext } from "../db/db.js";
 
 export function verifyToken(req,res,next){
     // Every protected route passes through this function before the route handler runs.
@@ -70,14 +69,59 @@ export function verifyToken(req,res,next){
             // decoded also contains iat and exp — route handlers do not need those.
         }
 
-        // Set the RLS context so PostgreSQL policies know who is making this request.
-        // The route handler runs only after this promise resolves.
-        setRlsContext(decode.id)
-            .then(() => next())
-            .catch(err => {
-                console.error("Failed to set RLS context:", err.message);
-                res.status(500).json({ error: "Internal server error" });
+        const client = await pool.connect();
+
+        try {
+            // Set the RLS context on THIS specific connection.
+            await client.query(
+                `SELECT set_config('app.current_user_id', $1, false)`,
+                [decode.id.toString()]
+            );
+
+            // Make this client available to every protected route.
+            req.db = client;
+
+            let cleanedUp = false;
+
+            const cleanup = async () => {
+                if (cleanedUp) return;
+                cleanedUp = true;
+
+                try {
+                    // Very important:
+                    // Remove the user ID before returning the connection
+                    // to the shared connection pool.
+                    await client.query(
+                        `RESET app.current_user_id`
+                    );
+                } catch (err) {
+                    console.error(
+                        "Failed to reset RLS context:",
+                        err.message
+                    );
+                } finally {
+                    client.release();
+                }
+            };
+
+            res.once("finish", cleanup);
+            res.once("close", cleanup);
+
+            next();
+
+        } catch (err) {
+            client.release();
+
+            console.error(
+                "Failed to establish RLS context:",
+                err.message
+            );
+
+            return res.status(500).json({
+                status: "error",
+                message: "Internal server error"
             });
+        }
     } catch (err) {
         // jwt.verify() throws on any failure.
         // Distinguish between "expired" and "invalid" for better client-side handling.

@@ -86,6 +86,14 @@ export const login = async (req,res,next) => {
 export const getMe = async (req, res, next) => {
   try {
     
+    const result = await pool.query(`
+        SELECT
+            current_user,
+            current_setting('app.current_user_id', true) AS rls_user_id
+    `);
+
+    console.log("RLS CONTEXT:", result.rows[0]);
+
     const result = await pool.query(
       'SELECT id, email, created_at FROM users WHERE id = $1',
             [req.user.id]
