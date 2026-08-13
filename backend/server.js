@@ -76,7 +76,7 @@ const startServer = async () => {
     const dbCheck = await pool.query('SELECT NOW() AS startup_time');
     console.log(`Database connected at: ${dbCheck.rows[0].startup_time}`);
 
-    app.listen(config.port, () => {
+    app.listen(config.port, "0.0.0.0",() => {
       console.log(`${config.appName} running on port ${config.port} [${config.nodeEnv}]`);
       console.log(`Health: http://localhost:${config.port}/health`);
     });

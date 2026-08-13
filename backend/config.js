@@ -20,7 +20,7 @@ export const config = {
     geminiApiKey : process.env.GEMINI_API_KEY,
     appName : process.env.APP_NAME || "DOCMIND",
     dbPass : process.env.DB_PASSWORD,
-    dbUrl : process.env.DB_URL,
+    dbUrl : process.env.DATABASE_URL,
     jwtSecret : process.env.JWT_SECRET,
     jwtExpiresIn : process.env.JWT_EXPIRES_IN || '7d',
     bcryptRounds : parseInt(process.env.BCRYPT_ROUNDS, 10) || 10,
