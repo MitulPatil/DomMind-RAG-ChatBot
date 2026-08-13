@@ -25,7 +25,7 @@ export const pool = new Pool(
 // Use ONLY for auth operations: register, login
 // Never use this pool in routes that handle user data
 export const adminPool = new Pool(
-  process.env.DATABASE_URL
+  config.AdminDbUrl
     ? {
         connectionString: config.AdminDbUrl,
         ssl: { rejectUnauthorized: false }
