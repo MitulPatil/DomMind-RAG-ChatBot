@@ -91,7 +91,7 @@ export const askQuestion = async (req,res,next) => {
             err.hint = "Upload the PDF first using POST /upload"
             return next(err);
         }
-        const retrieval = await hybridSearch(question.trim(), documentId, req.user.id, 3);
+        const retrieval = await hybridSearch(question.trim(), documentId, req.user.id, req.db,3);
 
         if(retrieval.gated){
             return res.json({
@@ -169,7 +169,7 @@ export const askStreamQuestion = async (req,res,next) => {
         return;
        }
 
-         const retrieval = await hybridSearch(question.trim(), documentId, userId, req.db, 3);
+        const retrieval = await hybridSearch(question.trim(), documentId, userId, req.db, 3);
 
        if(retrieval.gated){
         sendEvent({
@@ -182,7 +182,7 @@ export const askStreamQuestion = async (req,res,next) => {
         return
        }
 
-         await generateAnswerStream(res, question.trim(), retrieval.chunks, documentId, userId, retrieval, req.db);
+        await generateAnswerStream(res, question.trim(), retrieval.chunks, documentId, userId, retrieval, req.db);
 
        res.end();
     } catch (error) {
@@ -470,7 +470,7 @@ export const getUsage = async (req,res) => {
         // Cap at 90 days — queries beyond that are slow without additional indexing
 
         const { getUserUsageSummary } = await import("../services/cost-tracker.js");
-        const summary = await getUserUsageSummary(req.user.id, days);
+        const summary = await getUserUsageSummary(req.user.id, req.db, days);
 
         res.json({ success: true, usage: summary });
     } catch (err) {
