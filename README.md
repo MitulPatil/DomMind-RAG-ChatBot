@@ -2,11 +2,11 @@
 
 > AI-powered PDF question answering with multi-user support, streaming responses, and cited sources.
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Visit%20App-blue?style=flat-square)](https://your-frontend.vercel.app)
-[![Backend](https://img.shields.io/badge/Backend-Railway-purple?style=flat-square)](https://your-backend.up.railway.app/health)
-[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Visit%20App-blue?style=flat-square)](https://dom-mind-rag-chat-bot.vercel.app/)
+[![Backend](https://img.shields.io/badge/Backend-Render-purple?style=flat-square)](https://dommind-rag-chatbot.onrender.com/health)
+[![Database](https://img.shields.io/badge/Database-Supabase-green?style=flat-square)](https://supabase.com/)
 
-**[→ Try the live demo](https://your-frontend.vercel.app)**
+**[→ Try the live demo](https://dom-mind-rag-chat-bot.vercel.app/)**
 
 Upload any PDF. Ask questions about it in plain English. Get answers with exact page citations — streamed token by token.
 
@@ -17,10 +17,6 @@ Upload any PDF. Ask questions about it in plain English. Get answers with exact 
 ![DocMind Demo](./assests/Rag-pipline.png)
 
 *Upload a PDF → Ask questions → Get streamed answers with page citations*
-
-**[Watch the 3-minute demo video →](https://your-video-link)**
-
----
 
 ## What makes this different
 
@@ -36,44 +32,51 @@ Most RAG tutorials build single-user, no-auth systems with basic vector search. 
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                        React Frontend                           │
 │   Login/Register → Document List → Upload → Chat Interface      │
 │   Streaming consumer (SSE) | Citation panel | History sidebar   │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ HTTPS + JWT
-┌──────────────────────────▼──────────────────────────────────────┐
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
 │                     Express.js API                              │
+│                         Render                                  │
 │                                                                 │
 │  POST /auth/register   POST /auth/login    GET /auth/me         │
-│  POST /upload          GET  /documents     DELETE /documents    │
-│  POST /ask-stream      GET  /conversations GET /usage           │
+│  POST /upload          GET /documents     DELETE /documents    │
+│  POST /ask-stream      GET /conversations GET /usage           │
 │                                                                 │
-│  Middleware: verifyToken → setRlsContext → route handler        │
+│  Middleware: verifyToken → RLS context → route handler          │
 └────────────┬────────────────────┬───────────────────────────────┘
              │                    │
+             │                    │
 ┌────────────▼──────────┐  ┌─────▼──────────────────────────────┐
-│   Gemini API          │  │   PostgreSQL + pgvector             │
+│   Gemini API          │  │   Supabase PostgreSQL               │
 │                       │  │                                     │
-│  gemini-embedding-001 │  │  users          (JWT auth)          │
-│  → 3072-dim vectors   │  │  documents      (status tracking)   │
+│ gemini-embedding-001  │  │  users          (JWT auth)          │
+│ → 3072-dim vectors    │  │  documents      (status tracking)   │
 │                       │  │  chunks         (vector(3072))      │
 │ gemini-3.1-flash-lite │  │  conversations  (history per doc)   │
-│ -preview              |  |  api_usage_logs (cost tracking)    |
-| → streamed answers    │  |                                     │ 
+│ -preview              │  │  evaluation_logs (RAG evaluation)  │
+│ → streamed answers    │  │  api_usage_logs (cost tracking)    │
 │                       │  │                                     │
-│  (cost tracked per    │  │  RLS policies enforce user          │
-│   call to Postgres)   │  │  isolation at the DB level          │
+│  Token usage tracked  │  │  pgvector + PostgreSQL FTS          │
+│  per Gemini call      │  │  RLS policies enforce user          │
+│                       │  │  isolation at the DB level          │
 └───────────────────────┘  └─────────────────────────────────────┘
-```
-
-### Retrieval Pipeline
 
 ```
+## RAG Pipeline
+
+```text
+
 User question
      │
-     ▼
+     ├──────────────────────────────┐
+     │                              │
+     ▼                              ▼
 generateEmbedding()          plainto_tsquery()
      │                              │
      ▼                              ▼
@@ -87,10 +90,13 @@ semanticSearch()            keywordSearch()
                 │
                 ▼
     applyRelevanceGate()
-    (ABSOLUTE_MINIMUM=0.55, RELATIVE=0.85)
+    (ABSOLUTE_MINIMUM=0.50, RELATIVE=0.85)
                 │
                 ▼
     mergeAdjacentChunks()
+                │
+                ▼
+    Optional LLM Re-ranking
                 │
                 ▼
     buildSecurePrompt()
@@ -104,7 +110,9 @@ semanticSearch()            keywordSearch()
     citations event → done event
                 │
                 ▼
-    INSERT conversations + api_usage_logs
+    INSERT conversations
+    + api_usage_logs
+    + evaluation_logs
 ```
 
 ---
@@ -115,28 +123,35 @@ semanticSearch()            keywordSearch()
 |---|---|
 | Frontend | React 18, Vite |
 | Backend | Node.js, Express.js |
-| Database | PostgreSQL 18 + pgvector 0.8.3 |
-| AI / Embeddings | Google Gemini API (gemini-embedding-001, gemini-1.5-flash) |
-| Auth | JWT (jsonwebtoken + bcrypt) |
+| Database | Supabase PostgreSQL |
+| Vector Search | pgvector |
+| Full-Text Search | PostgreSQL Full-Text Search |
+| AI / Embeddings | Google Gemini API |
+| Embedding Model | `gemini-embedding-001` (3072 dimensions) |
+| Generation Model | `gemini-3.1-flash-lite-preview` |
+| Auth | JWT (`jsonwebtoken` + `bcrypt`) |
 | File Upload | Multer |
-| PDF Parsing | pdf-parse v2.4.5 |
-| Deployment | Railway (backend + DB), Vercel (frontend) |
-| Security | Row Level Security (PostgreSQL), Prompt injection defence |
+| PDF Parsing | `pdf-parse` v2.4.5 |
+| Deployment | Render (backend), Vercel (frontend), Supabase (database) |
+| Security | PostgreSQL Row Level Security, JWT authentication, prompt injection defence |
 
 ---
 
 ## Features
 
 - **Multi-user auth** — JWT-based registration and login
-- **PDF upload** — async indexing with real-time progress bar
-- **Hybrid semantic + keyword search** — Reciprocal Rank Fusion
+- **PDF upload** — async indexing with real-time progress tracking
+- **Hybrid semantic + keyword search** — vector search + PostgreSQL FTS combined with Reciprocal Rank Fusion
+- **Relevance gating** — filters weak retrieval results before generation
+- **Optional re-ranking** — improves ordering of retrieved candidates before generation
 - **Streaming answers** — token-by-token via Server-Sent Events
 - **Page citations** — answers reference exact page numbers from the source PDF
 - **Conversation history** — persistent per-document Q&A threads
-- **Data isolation** — PostgreSQL RLS + application-layer user_id filtering
+- **Data isolation** — PostgreSQL RLS + application-layer `user_id` filtering
 - **Prompt injection defence** — document content labelled as untrusted
 - **Cost tracking** — every Gemini API call logged with token counts
 - **Usage dashboard** — per-user token consumption and estimated cost
+- **RAG evaluation logging** — retrieval quality metrics stored separately from API usage
 
 ---
 
@@ -145,8 +160,8 @@ semanticSearch()            keywordSearch()
 ### Prerequisites
 
 - Node.js 18+
-- PostgreSQL 18 with pgvector extension installed
-- Google Gemini API key ([get one here](https://aistudio.google.com/))
+- PostgreSQL with pgvector extension installed
+- Google Gemini API key
 
 ### Backend Setup
 
@@ -160,30 +175,50 @@ Create `.env`:
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key
-JWT_SECRET=any_long_random_string_here
-PsqlPass=your_postgres_password
-DB_APP_PASSWORD=docmind_app_password
+
+JWT_SECRET=your_long_random_secret
+JWT_EXPIRES_IN=7d
+BCRYPT_ROUNDS=10
+
+DATABASE_URL=your_application_database_url
+ADMIN_DATABASE_URL=your_admin_database_url
+
+NODE_ENV=development
+PORT=3000
+CLIENT_URL=http://localhost:5173
 ```
 
 Create the database and run the schema:
 
-```bash
-# In psql as postgres superuser
-CREATE DATABASE semantic_search_db;
+```sql
+-- In psql as PostgreSQL administrator
+CREATE DATABASE PdfParse_semantic_db;
+
 \c semantic_search_db
 ```
 
+Then:
+
 ```bash
-# In your terminal
-psql -U postgres -d semantic_search_db -f schema-v3.sql
+psql -U postgres -d PdfParse_semantic_db -f schema.sql
 ```
 
 Start the backend:
 
 ```bash
 npm start
-# Server running at http://localhost:3000
-# Verify: GET http://localhost:3000/health
+```
+
+Server:
+
+```text
+http://localhost:3000
+```
+
+Verify:
+
+```text
+GET http://localhost:3000/health
 ```
 
 ### Frontend Setup
@@ -203,27 +238,245 @@ Start the frontend:
 
 ```bash
 npm run dev
-# App running at http://localhost:5173
 ```
+
+App:
+
+```text
+http://localhost:5173
+```
+
+---
+
+## Production Architecture
+
+DocMind is deployed using three separate services:
+
+```text
+                    ┌───────────────┐
+                    │    Vercel     │
+                    │ React Frontend│
+                    └───────┬───────┘
+                            │
+                            │ HTTPS + JWT
+                            ▼
+                    ┌───────────────┐
+                    │    Render     │
+                    │ Express API   │
+                    └───────┬───────┘
+                            │
+                 ┌──────────┴──────────┐
+                 │                     │
+                 ▼                     ▼
+        ┌─────────────────┐   ┌─────────────────┐
+        │ Supabase        │   │  Gemini API     │
+        │ PostgreSQL      │   │                 │
+        │ + pgvector      │   │ Embeddings      │
+        │ + RLS           │   │ + Generation    │
+        └─────────────────┘   └─────────────────┘
+```
+
+### Production responsibilities
+
+#### Vercel
+
+- React frontend
+- Static assets
+- Client-side application
+- API requests to Render
+
+#### Render
+
+- Express.js backend
+- JWT authentication
+- PDF processing
+- Async indexing
+- Hybrid retrieval
+- RRF
+- Re-ranking
+- Gemini API calls
+- SSE streaming
+
+#### Supabase
+
+- PostgreSQL database
+- pgvector
+- PostgreSQL Full-Text Search
+- Row Level Security
+- Persistent application data
 
 ---
 
 ## Environment Variables
 
-### Backend (Railway)
+### Backend — Render
 
 | Variable | Description |
 |---|---|
 | `GEMINI_API_KEY` | Google Gemini API key |
-| `JWT_SECRET` | Secret for signing JWT tokens (use a long random string) |
-| `DATABASE_URL` | Injected automatically by Railway when you add PostgreSQL |
+| `JWT_SECRET` | Secret used to sign JWT tokens |
+| `JWT_EXPIRES_IN` | JWT expiration period |
+| `BCRYPT_ROUNDS` | bcrypt hashing cost |
+| `DATABASE_URL` | Application PostgreSQL connection string |
+| `ADMIN_DATABASE_URL` | Admin/authentication PostgreSQL connection string |
 | `NODE_ENV` | Set to `production` |
+| `PORT` | Provided by Render |
+| `CLIENT_URL` | Production Vercel frontend URL |
 
-### Frontend (Vercel)
+> Database credentials and API keys are stored as Render environment variables and are not committed to Git.
+
+### Frontend — Vercel
 
 | Variable | Description |
 |---|---|
-| `VITE_API_URL` | Your Railway backend URL (e.g. `https://docmind.up.railway.app`) |
+| `VITE_API_URL` | Production Render backend URL |
+
+Example:
+
+```env
+VITE_API_URL=https://your-backend.onrender.com
+```
+
+---
+
+## Database Security
+
+DocMind uses PostgreSQL Row Level Security (RLS) to enforce user-level data isolation.
+
+The backend uses a dedicated application database role for normal user-data queries and an administrative connection only where elevated database privileges are required.
+
+For authenticated requests:
+
+```text
+JWT
+ │
+ ▼
+verifyToken
+ │
+ ▼
+req.user.id
+ │
+ ▼
+Set PostgreSQL RLS context
+ │
+ ▼
+RLS-aware database connection
+ │
+ ▼
+PostgreSQL RLS policy
+ │
+ ▼
+Only the authenticated user's rows
+```
+
+This provides multiple layers of protection:
+
+1. **JWT authentication** — verifies the identity of the requester
+2. **Application-layer filtering** — user-owned resources are checked using `user_id`
+3. **PostgreSQL RLS** — database policies enforce user isolation
+4. **Database roles** — application and administrative database access are separated
+
+---
+
+## Security Architecture
+
+Three layers of data isolation:
+
+1. **JWT middleware** — every protected request must carry a valid signed token
+2. **Application-layer filtering** — user-owned resources are checked using `user_id`
+3. **PostgreSQL RLS** — policies enforce isolation at the database engine level
+
+For example, even if an application query accidentally omits an ownership condition, PostgreSQL RLS can prevent access to another user's rows.
+
+### Prompt Injection Defence
+
+Retrieved document content is explicitly labelled as:
+
+```text
+UNTRUSTED USER-UPLOADED CONTENT
+```
+
+in the generation prompt.
+
+The model is instructed to treat document content as data rather than instructions and to report suspicious prompt-injection attempts instead of following them.
+
+---
+
+## How It Works
+
+### 1. Upload
+
+```text
+PDF
+ ↓
+PDF extraction
+ ↓
+Page-by-page text
+ ↓
+Chunking
+(150 words, 30 overlap)
+ ↓
+Quality filtering
+ ↓
+Embedding generation
+(gemini-embedding-001)
+ ↓
+Batch processing
+ ↓
+PostgreSQL + pgvector
+ ↓
+Document status = ready
+```
+
+Page metadata is stored with each chunk so that retrieved content can later be converted into page citations.
+
+### 2. Question
+
+```text
+User question
+ ↓
+Embedding generation
+ ↓
+┌──────────────────────┐
+│ Hybrid Retrieval     │
+│                      │
+│ Semantic Search      │
+│       +              │
+│ Keyword Search       │
+└──────────┬───────────┘
+           ↓
+RRF Fusion
+           ↓
+Relevance Gate
+           ↓
+Adjacent Chunk Merging
+           ↓
+Optional Re-ranking
+           ↓
+Secure Prompt
+```
+
+### 3. Answer
+
+```text
+Secure prompt
+      ↓
+Gemini
+      ↓
+SSE stream
+      ↓
+Token-by-token response
+      ↓
+Citations event
+      ↓
+Done event
+      ↓
+Conversation saved
+      ↓
+API usage logged
+      ↓
+RAG evaluation logged
+```
 
 ---
 
@@ -231,52 +484,28 @@ npm run dev
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| POST | `/auth/register` | None | Create account |
-| POST | `/auth/login` | None | Login, receive JWT |
-| GET | `/auth/me` | JWT | Get current user |
-| POST | `/upload` | JWT | Upload and index a PDF |
-| GET | `/documents` | JWT | List user's documents |
-| GET | `/documents/:id` | JWT | Get document + indexing progress |
-| DELETE | `/documents/:id` | JWT | Delete document and all chunks |
-| POST | `/ask-stream` | JWT | Ask question, SSE stream response |
-| POST | `/ask` | JWT | Ask question, JSON response |
-| GET | `/conversations/:docId` | JWT | Get conversation history for document |
-| DELETE | `/conversations/:docId/:id` | JWT | Delete a conversation entry |
-| GET | `/usage` | JWT | Get API usage summary |
-| GET | `/health` | None | Health check |
-
----
-
-## Security Architecture
-
-**Three layers of data isolation:**
-
-1. **JWT middleware** — every request must carry a valid signed token
-2. **Application-layer filtering** — every SQL query includes `WHERE user_id = $1`
-3. **PostgreSQL RLS** — policies enforce isolation at the database engine level; even a query that forgets the WHERE clause returns no rows for the wrong user
-
-**Prompt injection defence:**
-
-Retrieved document content is explicitly labelled as `UNTRUSTED USER-UPLOADED CONTENT` in the system prompt. The model is instructed to treat it as data to summarise rather than instructions to follow, and to report rather than obey any injection attempts found in document content.
-
----
-
-## How It Works
-
-1. **Upload**: PDF extracted page-by-page → chunked (150 words, 30 overlap) → garbage chunks filtered → embedded in batches → stored in pgvector with page metadata
-2. **Question**: Embedded → hybrid search (pgvector + PostgreSQL FTS) → RRF fusion → relevance gate → adjacent chunk merging → injected into secured prompt
-3. **Answer**: Streamed token-by-token via SSE → citations extracted after stream → saved to conversation history → token usage logged
+| `POST` | `/auth/register` | None | Create account |
+| `POST` | `/auth/login` | None | Login, receive JWT |
+| `GET` | `/auth/me` | JWT | Get current user |
+| `POST` | `/upload` | JWT | Upload and index a PDF |
+| `GET` | `/documents` | JWT | List user's documents |
+| `GET` | `/documents/:id` | JWT | Get document + indexing progress |
+| `DELETE` | `/documents/:id` | JWT | Delete document and all chunks |
+| `POST` | `/ask-stream` | JWT | Ask question, SSE stream response |
+| `POST` | `/ask` | JWT | Ask question, JSON response |
+| `GET` | `/conversations/:docId` | JWT | Get conversation history for document |
+| `DELETE` | `/conversations/:docId/:id` | JWT | Delete a conversation entry |
+| `GET` | `/usage` | JWT | Get API usage summary |
+| `GET` | `/health` | None | Health check |
 
 ---
 
 ## Author
 
-**[Your Name]**
+**[Mitul Patil]**
 
-- Portfolio: [your-portfolio.com]
-- LinkedIn: [linkedin.com/in/your-profile]
-- GitHub: [@your-username](https://github.com/your-username)
+Portfolio: [Portfolio](https://portfolio-coral-three-66.vercel.app/)
 
----
+LinkedIn: [LinkedIn](https://www.linkedin.com/in/mitul-patil-471456256)
 
-*Built as part of a structured 5-month full-stack development plan. [Read about the project journey →](your-blog-or-notion-link)*
+GitHub: [@MitulPatil]
